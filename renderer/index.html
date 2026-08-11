@@ -151,6 +151,7 @@
       <select id="assigneeFilter"></select>
       <label class="check"><input type="checkbox" id="overdueOnly" /> <span data-i18n="filters.overdueOnly"></span></label>
       <label class="check"><input type="checkbox" id="hideDone" /> <span data-i18n="filters.hideDone"></span></label>
+      <button id="taskSortBtn" type="button" class="task-sort"></button>
     </section>
 
     <div id="banner" class="banner" hidden></div>
@@ -314,9 +315,18 @@
 <dialog id="imageDialog" class="dialog image-dialog">
   <div class="image-head">
     <span id="imageName"></span>
-    <button type="button" class="icon-btn" data-close="cancel" data-i18n="dialog.close"></button>
+    <span class="zoom-tools">
+      <button type="button" class="icon-btn" id="zoomOut">−</button>
+      <button type="button" class="icon-btn" id="zoomLevel">100%</button>
+      <button type="button" class="icon-btn" id="zoomIn">+</button>
+      <button type="button" class="icon-btn" id="openOutside" data-i18n="image.outside"></button>
+      <button type="button" class="icon-btn" data-close="cancel" data-i18n="dialog.close"></button>
+    </span>
   </div>
-  <img id="imageView" alt="" />
+  <div id="imageStage" class="image-stage">
+    <img id="imageView" alt="" />
+  </div>
+  <div class="image-hint" data-i18n="image.hint"></div>
 </dialog>
 
 <dialog id="confirmDialog" class="dialog">

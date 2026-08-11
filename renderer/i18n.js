@@ -135,6 +135,11 @@ const TRANSLATIONS = {
       member: 'сотрудник'
     },
 
+    image: {
+      outside: 'Открыть в системе',
+      hint: 'Колесо мыши — приблизить, двойной щелчок — во весь экран и обратно, увеличенную картинку можно таскать мышью.'
+    },
+
     table: {
       task: 'Задача',
       project: 'Проект',
@@ -142,6 +147,9 @@ const TRANSLATIONS = {
       due: 'Дедлайн',
       assignee: 'Исполнитель',
       addTask: '+ Добавить задачу',
+      orderDue: 'Порядок: по сроку',
+      orderManual: 'Порядок: свой',
+      orderHint: 'Порядок задач виден только вам. Задачи можно перетаскивать мышью.',
       edit: 'Изм.',
       delete: 'Удал.',
       you: 'вы',
@@ -393,6 +401,11 @@ const TRANSLATIONS = {
       member: 'member'
     },
 
+    image: {
+      outside: 'Open in system viewer',
+      hint: 'Scroll to zoom, double-click to fit and back; a zoomed image can be dragged with the mouse.'
+    },
+
     table: {
       task: 'Task',
       project: 'Project',
@@ -400,6 +413,9 @@ const TRANSLATIONS = {
       due: 'Due date',
       assignee: 'Assignee',
       addTask: '+ Add task',
+      orderDue: 'Order: by due date',
+      orderManual: 'Order: custom',
+      orderHint: 'Only you see this order. Tasks can be dragged with the mouse.',
       edit: 'Edit',
       delete: 'Delete',
       you: 'you',
@@ -651,6 +667,11 @@ const TRANSLATIONS = {
       member: 'עובד'
     },
 
+    image: {
+      outside: 'פתיחה במציג המערכת',
+      hint: 'גלגלת העכבר מקרבת, לחיצה כפולה מתאימה לחלון וחזרה, ותמונה מוגדלת אפשר לגרור בעכבר.'
+    },
+
     table: {
       task: 'משימה',
       project: 'פרויקט',
@@ -658,6 +679,9 @@ const TRANSLATIONS = {
       due: 'תאריך יעד',
       assignee: 'מבצע',
       addTask: '+ הוספת משימה',
+      orderDue: 'סדר: לפי תאריך יעד',
+      orderManual: 'סדר: אישי',
+      orderHint: 'הסדר גלוי רק לכם. אפשר לגרור משימות בעכבר.',
       edit: 'עריכה',
       delete: 'מחיקה',
       you: 'אתם',

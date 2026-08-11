@@ -187,6 +187,69 @@ const visibleProjects = () => {
   return orderedProjects(found);
 };
 
+// Порядок задач внутри проекта — тоже личный и хранится так же. Для каждого
+// проекта он свой: где-то удобно по сроку, где-то разложить руками.
+let taskBoards = {};   // id проекта -> { sort: 'due' | 'manual', order: [id задач] }
+
+const taskOrderKey = () => `sadran.taskOrder.${me ? me.id : 'anon'}`;
+
+function loadTaskOrder() {
+  taskBoards = {};
+  try {
+    const saved = JSON.parse(localStorage.getItem(taskOrderKey()) || '{}');
+    for (const [projectId, board] of Object.entries(saved)) {
+      if (!board || !Array.isArray(board.order)) continue;
+      taskBoards[projectId] = {
+        sort: board.sort === 'manual' ? 'manual' : 'due',
+        order: board.order.filter((id) => typeof id === 'string')
+      };
+    }
+  } catch (error) {
+    // Испорченную запись игнорируем — вернёмся к сортировке по сроку.
+  }
+}
+
+function saveTaskOrder() {
+  try {
+    localStorage.setItem(taskOrderKey(), JSON.stringify(taskBoards));
+  } catch (error) {
+    // Хранилище недоступно — порядок доживёт до перезапуска.
+  }
+}
+
+const boardOf = (projectId) => taskBoards[projectId] || { sort: 'due', order: [] };
+
+// Пока человек не трогал список руками, задачи разложены по сроку — как раньше.
+function orderedTasks(list, projectId) {
+  const board = boardOf(projectId);
+  if (board.sort !== 'manual') return [...list].sort(byDueDate);
+
+  const rank = new Map(board.order.map((id, i) => [id, i]));
+  const at = (task) => (rank.has(task.id) ? rank.get(task.id) : Number.MAX_SAFE_INTEGER);
+  return [...list].sort((a, b) => at(a) - at(b) || byDueDate(a, b));
+}
+
+function moveTask(projectId, dragId, targetId, after) {
+  if (!dragId || !targetId || dragId === targetId) return;
+
+  // Как и у проектов: держим порядок всех задач проекта, а не только видимых,
+  // иначе задача перепрыгнет через скрытые фильтром строки.
+  const all = orderedTasks(tasks.filter((x) => x.project_id === projectId), projectId);
+  const full = all.map((x) => x.id);
+
+  const from = full.indexOf(dragId);
+  if (from < 0) return;
+  full.splice(from, 1);
+
+  const to = full.indexOf(targetId);
+  if (to < 0) return;
+  full.splice(after ? to + 1 : to, 0, dragId);
+
+  taskBoards[projectId] = { sort: 'manual', order: full };
+  saveTaskOrder();
+  renderTasks();
+}
+
 // Личный порядок держим полным списком id — тогда проект не прыгает через
 // половину списка, если он показан не весь (включён поиск или «только моя команда»).
 function moveProject(dragId, targetId, after) {
@@ -656,7 +719,9 @@ async function enterApp() {
     return;
   }
 
-  loadProjectOrder();   // порядок свой у каждого аккаунта на этом компьютере
+  // Порядок проектов и задач свой у каждого аккаунта на этом компьютере.
+  loadProjectOrder();
+  loadTaskOrder();
 
   // Человека без команды сразу отправляем на экран команды — там объяснено, что делать.
   view = (me.team_id || isOwner()) ? MY_TASKS : TEAM_VIEW;
@@ -878,6 +943,14 @@ function renderFilterOptions() {
 
   // В «Моих задачах» фильтр по исполнителю смысла не имеет.
   assigneeFilter.hidden = view === MY_TASKS;
+
+  // Там же нечего и переупорядочивать — задачи собраны из разных проектов.
+  const sortBtn = $('taskSortBtn');
+  sortBtn.hidden = view === MY_TASKS || view === TEAM_VIEW;
+  if (!sortBtn.hidden) {
+    sortBtn.textContent = boardOf(view).sort === 'manual' ? t('table.orderManual') : t('table.orderDue');
+    sortBtn.title = t('table.orderHint');
+  }
 }
 
 /* ---------- Отрисовка: задачи ---------- */
@@ -1038,6 +1111,9 @@ function taskRow(task, withProject) {
   // клик раньше — closest() находит ближайший data-action, а не этот.
   tr.dataset.action = 'toggleRow';
   tr.dataset.id = task.id;
+  // В «Моих задачах» задачи собраны из разных проектов и разложены по
+  // срочности — там перетаскивание смысла не имеет.
+  tr.draggable = view !== MY_TASKS;
 
   const tdTitle = document.createElement('td');
   const title = document.createElement('div');
@@ -1143,6 +1219,11 @@ function extrasRow(task, colSpan) {
     strip.className = 'thumb-strip';
 
     for (const file of files) {
+      // Каждое вложение в своей обёртке: на неё вешаем крестик, который
+      // проявляется при наведении.
+      const item = document.createElement('div');
+      item.className = 'thumb-item';
+
       if (isImage(file)) {
         const img = document.createElement('img');
         img.className = 'thumb';
@@ -1152,15 +1233,28 @@ function extrasRow(task, colSpan) {
         img.dataset.id = file.id;
         if (thumbs.has(file.path)) img.src = thumbs.get(file.path);
         else signedUrl(file).then((url) => { thumbs.set(file.path, url); img.src = url; }).catch(() => {});
-        strip.append(img);
+        item.append(img);
       } else {
         const link = document.createElement('button');
         link.className = 'counter';
         link.dataset.action = 'openFile';
         link.dataset.id = file.id;
         link.textContent = '📎 ' + file.name;
-        strip.append(link);
+        item.append(link);
       }
+
+      // Удалять вложение может тот, кто его приложил, и владелец — как в карточке.
+      if (file.created_by === me.id || isOwner()) {
+        const del = document.createElement('button');
+        del.className = 'thumb-del';
+        del.dataset.action = 'deleteFile';
+        del.dataset.id = file.id;
+        del.title = t('team.delete');
+        del.textContent = '✕';
+        item.append(del);
+      }
+
+      strip.append(item);
     }
 
     const add = document.createElement('button');
@@ -1333,7 +1427,7 @@ function renderTasks() {
     return;
   }
 
-  const table = taskTable(list.sort(byDueDate), false);
+  const table = taskTable(orderedTasks(list, view), false);
 
   if (list.length === 0) {
     emptyRow(table, scoped.length ? t('table.noMatch') : t('table.empty'), 5);
@@ -1828,6 +1922,103 @@ async function signedUrl(file) {
   return data.signedUrl;
 }
 
+/* ---------- Просмотр картинки с приближением ---------- */
+
+// Скриншот интерфейса в размер окна не читается, поэтому его можно приблизить:
+// колесом, кнопками и двойным щелчком, а увеличенную картинку — таскать мышью.
+let imageUrl = null;
+let zoom = 1;            // 1 — пиксель в пиксель
+let fitZoom = 1;         // масштаб, при котором картинка целиком видна
+let pan = { x: 0, y: 0 };
+
+const MAX_ZOOM = 8;
+
+function applyZoom() {
+  const img = $('imageView');
+  img.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+  $('zoomLevel').textContent = Math.round(zoom * 100) + '%';
+  $('imageStage').classList.toggle('zoomed', zoom > fitZoom + 0.001);
+}
+
+// Вписываем картинку в окно, но не растягиваем мелкую сверх её размера.
+function fitImage() {
+  const img = $('imageView');
+  const stage = $('imageStage');
+  if (!img.naturalWidth) return;
+
+  const box = stage.getBoundingClientRect();
+  fitZoom = Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight, 1);
+  zoom = fitZoom;
+  pan = { x: 0, y: 0 };
+  applyZoom();
+}
+
+// Приближаем к точке под курсором, иначе на большом скриншоте не поймать нужное место.
+function zoomAt(factor, clientX, clientY) {
+  const next = Math.min(Math.max(zoom * factor, fitZoom / 4), MAX_ZOOM);
+  if (next === zoom) return;
+
+  const box = $('imageStage').getBoundingClientRect();
+  const cx = (clientX ?? box.left + box.width / 2) - box.left - box.width / 2;
+  const cy = (clientY ?? box.top + box.height / 2) - box.top - box.height / 2;
+  const k = next / zoom;
+
+  pan = { x: cx - (cx - pan.x) * k, y: cy - (cy - pan.y) * k };
+  zoom = next;
+  applyZoom();
+}
+
+$('imageView').addEventListener('load', fitImage);
+$('zoomIn').addEventListener('click', () => zoomAt(1.25));
+$('zoomOut').addEventListener('click', () => zoomAt(1 / 1.25));
+$('zoomLevel').addEventListener('click', () => {
+  // Кнопка с процентами переключает «целиком» и «пиксель в пиксель».
+  if (Math.abs(zoom - 1) < 0.001) fitImage();
+  else zoomAt(1 / zoom);
+});
+
+$('openOutside').addEventListener('click', () => {
+  if (imageUrl) window.desktop.openExternal(imageUrl);
+});
+
+$('imageStage').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
+}, { passive: false });
+
+$('imageStage').addEventListener('dblclick', (e) => {
+  if (Math.abs(zoom - fitZoom) < 0.001) zoomAt(2 / zoom, e.clientX, e.clientY);
+  else fitImage();
+});
+
+// Перетаскивание приближённой картинки. Ведём по указателю, чтобы курсор
+// не терялся за краем окна.
+$('imageStage').addEventListener('pointerdown', (e) => {
+  if (zoom <= fitZoom + 0.001) return;
+  e.preventDefault();
+  $('imageStage').setPointerCapture(e.pointerId);
+
+  const start = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  const move = (ev) => {
+    pan = { x: ev.clientX - start.x, y: ev.clientY - start.y };
+    applyZoom();
+  };
+  const up = () => {
+    $('imageStage').removeEventListener('pointermove', move);
+    $('imageStage').removeEventListener('pointerup', up);
+  };
+  $('imageStage').addEventListener('pointermove', move);
+  $('imageStage').addEventListener('pointerup', up);
+});
+
+$('imageDialog').addEventListener('keydown', (e) => {
+  if (e.key === '+' || e.key === '=') zoomAt(1.25);
+  if (e.key === '-') zoomAt(1 / 1.25);
+  if (e.key === '0') fitImage();
+});
+
+$('imageDialog').addEventListener('close', () => { imageUrl = null; });
+
 async function openAttachment(id, inApp) {
   const file = attachments.find((a) => a.id === id) || allAttachments.find((a) => a.id === id);
   if (!file) return;
@@ -1840,14 +2031,18 @@ async function openAttachment(id, inApp) {
     }
     $('imageName').textContent = file.name;
     $('imageView').src = url;
+    imageUrl = url;
     $('imageDialog').showModal();
+    fitImage();
   } catch (error) {
     showBanner(humanError(error), 'bad');
   }
 }
 
+// Вложение удаляют и из карточки задачи, и прямо из полосы под задачей,
+// поэтому ищем его в обоих списках — как и при открытии.
 async function deleteAttachment(id) {
-  const file = attachments.find((a) => a.id === id);
+  const file = attachments.find((a) => a.id === id) || allAttachments.find((a) => a.id === id);
   if (!file) return;
 
   const ok = await askConfirm({
@@ -1860,10 +2055,14 @@ async function deleteAttachment(id) {
     await sb.storage.from('attachments').remove([file.path]);
     const { error } = await sb.from('attachments').delete().eq('id', id);
     if (error) throw error;
-    await loadExtras(editingTaskId);
+
+    thumbs.delete(file.path);
+    if (editingTaskId) await loadExtras(editingTaskId);
     await refresh();
   } catch (error) {
-    fieldError('extrasError', humanError(error));
+    // Из таблицы карточка не открыта, и поле с ошибкой в ней не видно.
+    if (editingTaskId) fieldError('extrasError', humanError(error));
+    else showBanner(humanError(error), 'bad');
   }
 }
 
@@ -2135,6 +2334,74 @@ $('projectList').addEventListener('dragend', () => {
   for (const el of $('projectList').querySelectorAll('.dragging')) el.classList.remove('dragging');
 });
 
+/* ---------- Перетаскивание задач внутри проекта ---------- */
+
+let draggingTaskId = null;
+
+function clearTaskDropMarks() {
+  for (const el of $('tasks').querySelectorAll('.drop-before, .drop-after')) {
+    el.classList.remove('drop-before', 'drop-after');
+  }
+}
+
+function taskDropTarget(e) {
+  const row = e.target.closest('.task-row');
+  if (!row || row.dataset.id === draggingTaskId) return null;
+  const box = row.getBoundingClientRect();
+  return { id: row.dataset.id, after: e.clientY > box.top + box.height / 2, row };
+}
+
+$('tasks').addEventListener('dragstart', (e) => {
+  const row = e.target.closest('.task-row');
+  if (!row || !row.draggable) return;
+
+  draggingTaskId = row.dataset.id;
+  row.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', draggingTaskId);
+});
+
+$('tasks').addEventListener('dragover', (e) => {
+  if (!draggingTaskId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const target = taskDropTarget(e);
+  clearTaskDropMarks();
+  if (target) target.row.classList.add(target.after ? 'drop-after' : 'drop-before');
+});
+
+$('tasks').addEventListener('drop', (e) => {
+  if (!draggingTaskId) return;
+  e.preventDefault();
+
+  const target = taskDropTarget(e);
+  clearTaskDropMarks();
+  if (target && view !== MY_TASKS) moveTask(view, draggingTaskId, target.id, target.after);
+  draggingTaskId = null;
+});
+
+$('tasks').addEventListener('dragend', () => {
+  draggingTaskId = null;
+  clearTaskDropMarks();
+  for (const el of $('tasks').querySelectorAll('.dragging')) el.classList.remove('dragging');
+});
+
+// Вернуть задачи к сортировке по сроку и снова к своему порядку.
+$('taskSortBtn').addEventListener('click', () => {
+  const board = boardOf(view);
+  taskBoards[view] = { sort: board.sort === 'manual' ? 'due' : 'manual', order: board.order };
+
+  // Порядок «свой» без разложенного списка — это тот же порядок по сроку,
+  // просто зафиксированный: дальше его можно менять мышью.
+  if (taskBoards[view].sort === 'manual' && board.order.length === 0) {
+    taskBoards[view].order = orderedTasks(tasks.filter((x) => x.project_id === view), view)
+      .map((x) => x.id);
+  }
+  saveTaskOrder();
+  render();
+});
+
 // Кнопка сортировки: вручную → по номеру → по названию → снова вручную.
 // Ручной порядок при этом сохраняется и возвращается как был.
 $('projectSortBtn').addEventListener('click', () => {
@@ -2218,6 +2485,8 @@ $('tasks').addEventListener('click', (e) => {
   if (action === 'delete') deleteTask(id);
   if (action === 'viewImage') openAttachment(id, true);
   if (action === 'openFile') openAttachment(id, false);
+  if (action === 'deleteFile') deleteAttachment(id);
+  if (action === 'deleteComment') run(() => sb.from('comments').delete().eq('id', id));
 
   // Каждый значок открывает свою секцию; повторное нажатие сворачивает.
   const modes = { toggleComments: 'comments', toggleFiles: 'files', toggleRow: 'comments' };
