@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in;" />
+  <title>Sadran</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ============ Экран 1: подключение к базе ============ -->
+<section id="setupScreen" class="screen centered" hidden>
+  <form id="setupForm" class="card">
+    <div class="lang-row">
+      <select id="langSetup" class="lang-select"></select>
+    </div>
+
+    <h1 data-i18n="setup.title"></h1>
+    <p class="lead" data-i18n="setup.lead"></p>
+
+    <label>
+      <span data-i18n="setup.url"></span>
+      <input name="url" placeholder="https://xxxxxxxx.supabase.co" required autocomplete="off" spellcheck="false" />
+    </label>
+
+    <label>
+      <span data-i18n="setup.key"></span>
+      <input name="key" placeholder="eyJhbGciOi…" required autocomplete="off" spellcheck="false" />
+    </label>
+
+    <p class="hint" data-i18n="setup.hint"></p>
+
+    <div id="setupError" class="error" hidden></div>
+
+    <div class="actions">
+      <span></span>
+      <button type="submit" class="btn-primary" data-i18n="setup.connect"></button>
+    </div>
+  </form>
+</section>
+
+<!-- ============ Экран 2: вход ============ -->
+<section id="authScreen" class="screen centered" hidden>
+  <form id="authForm" class="card">
+    <div class="lang-row">
+      <select id="langAuth" class="lang-select"></select>
+    </div>
+
+    <h1 id="authTitle"></h1>
+
+    <label id="nameField" hidden>
+      <span data-i18n="auth.name"></span>
+      <input name="fullName" autocomplete="off" maxlength="20" data-i18n-placeholder="auth.namePlaceholder" />
+    </label>
+
+    <label>
+      <span data-i18n="auth.email"></span>
+      <input name="email" type="email" required autocomplete="username" spellcheck="false" />
+    </label>
+
+    <label>
+      <span data-i18n="auth.password"></span>
+      <input name="password" type="password" required minlength="6" autocomplete="current-password" />
+    </label>
+
+    <div id="authError" class="error" hidden></div>
+    <div id="authNotice" class="notice" hidden></div>
+
+    <div class="actions">
+      <button type="button" id="switchModeBtn" class="link-btn"></button>
+      <button type="submit" id="authSubmit" class="btn-primary"></button>
+    </div>
+
+    <button type="button" id="changeServerBtn" class="link-btn quiet" data-i18n="auth.changeServer"></button>
+  </form>
+</section>
+
+<!-- ============ Экран 3: приложение ============ -->
+<section id="appScreen" class="screen app" hidden>
+  <aside class="sidebar">
+    <!-- Название бренда не переводится: одинаковое во всех языках. -->
+    <div class="brand">Sadran</div>
+
+    <button id="myTasksBtn" class="project-item my-tasks">
+      <span class="dot star">★</span>
+      <span class="name" data-i18n="nav.myTasks"></span>
+      <span id="myTasksCount" class="count"></span>
+    </button>
+
+    <button id="teamBtn" class="project-item">
+      <span class="dot star">👥</span>
+      <span class="name" data-i18n="nav.team"></span>
+      <span id="teamCount" class="count"></span>
+    </button>
+
+    <div class="section-label" data-i18n="nav.projects"></div>
+    <nav id="projectList" class="project-list"></nav>
+    <button id="addProjectBtn" class="btn-ghost add-project" data-i18n="nav.newProject"></button>
+
+    <div class="sidebar-foot">
+      <div class="me">
+        <span id="meAvatar" class="avatar"></span>
+        <span class="me-info">
+          <span id="meName" class="me-name"></span>
+          <span id="meEmail" class="me-email"></span>
+        </span>
+      </div>
+      <label id="viewModeField" class="foot-field" hidden>
+        <span data-i18n="nav.viewMode"></span>
+        <select id="viewMode" class="lang-select foot-lang"></select>
+      </label>
+
+      <div class="foot-links">
+        <button id="renameMeBtn" class="link-btn" data-i18n="nav.changeName"></button>
+        <button id="aiBtn" class="link-btn" data-i18n="nav.assistant"></button>
+        <button id="pairBtn" class="link-btn" data-i18n="nav.pair"></button>
+        <button id="signOutBtn" class="link-btn" data-i18n="nav.signOut"></button>
+      </div>
+      <select id="langApp" class="lang-select foot-lang"></select>
+      <div id="syncState" class="sync-state"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="title-block">
+        <h1 id="viewTitle"></h1>
+        <div id="viewMeta" class="project-meta"></div>
+      </div>
+      <div class="top-actions">
+        <button id="voiceBtn" class="btn-ghost" hidden data-i18n="head.voice"></button>
+        <button id="addTeamBtn" class="btn-primary" hidden data-i18n="head.addTeam"></button>
+        <button id="addTaskBtn" class="btn-primary" hidden data-i18n="head.addTask"></button>
+        <button id="renameProjectBtn" class="btn-ghost" hidden data-i18n="head.rename"></button>
+        <button id="deleteProjectBtn" class="btn-ghost danger" hidden data-i18n="head.deleteProject"></button>
+      </div>
+    </header>
+
+    <section class="filters">
+      <input id="searchInput" type="search" data-i18n-placeholder="filters.search" />
+      <select id="statusFilter"></select>
+      <select id="assigneeFilter"></select>
+      <label class="check"><input type="checkbox" id="overdueOnly" /> <span data-i18n="filters.overdueOnly"></span></label>
+      <label class="check"><input type="checkbox" id="hideDone" /> <span data-i18n="filters.hideDone"></span></label>
+    </section>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <section id="tasks" class="tasks"></section>
+    <section id="team" class="tasks" hidden></section>
+  </main>
+</section>
+
+<!-- ============ Диалоги ============ -->
+
+<dialog id="taskDialog" class="dialog">
+  <form id="taskForm" method="dialog">
+    <h2 id="taskDialogTitle"></h2>
+
+    <label>
+      <span data-i18n="dialog.title"></span>
+      <input name="title" required maxlength="200" autocomplete="off" />
+    </label>
+
+    <label>
+      <span data-i18n="dialog.project"></span>
+      <select name="projectId" id="taskProject"></select>
+    </label>
+
+    <div class="row">
+      <label>
+        <span data-i18n="dialog.status"></span>
+        <select name="status" id="taskStatus"></select>
+      </label>
+      <label>
+        <span data-i18n="dialog.due"></span>
+        <input name="due" type="date" />
+      </label>
+    </div>
+
+    <label>
+      <span data-i18n="dialog.assignee"></span>
+      <select name="assigneeId" id="taskAssignee"></select>
+    </label>
+
+    <label>
+      <span data-i18n="dialog.notes"></span>
+      <textarea name="notes" rows="3" maxlength="2000"></textarea>
+    </label>
+
+    <section id="taskExtras" hidden>
+      <!-- Ошибки загрузки показываем здесь: баннер приложения прячется за модальным окном. -->
+      <div id="extrasError" class="error" hidden></div>
+
+      <div class="extras-head" data-i18n="dialog.files"></div>
+      <div id="attachList" class="attach-list"></div>
+      <div class="extras-actions">
+        <button type="button" id="attachBtn" class="icon-btn" data-i18n="dialog.attach"></button>
+        <span id="attachHint" class="meta-note" data-i18n="dialog.attachHint"></span>
+      </div>
+
+      <div class="extras-head" data-i18n="dialog.comments"></div>
+      <div id="commentList" class="comment-list"></div>
+      <div class="comment-new">
+        <textarea id="commentInput" rows="2" maxlength="4000" data-i18n-placeholder="dialog.commentPlaceholder"></textarea>
+        <button type="button" id="commentBtn" class="btn-ghost" data-i18n="dialog.send"></button>
+      </div>
+    </section>
+
+    <menu class="dialog-actions">
+      <button type="button" class="btn-ghost" data-close="cancel" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-primary" type="submit" data-i18n="dialog.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="projectDialog" class="dialog">
+  <form id="projectForm" method="dialog">
+    <h2 id="projectDialogTitle"></h2>
+
+    <label id="projectTeamField" hidden>
+      <span data-i18n="dialog.team"></span>
+      <select name="teamId" id="projectTeam"></select>
+    </label>
+
+    <div class="row narrow-first">
+      <label>
+        <span data-i18n="dialog.code"></span>
+        <input name="code" maxlength="20" autocomplete="off" placeholder="4076" />
+      </label>
+      <label>
+        <span data-i18n="dialog.title"></span>
+        <input name="name" required maxlength="80" autocomplete="off" />
+      </label>
+    </div>
+
+    <p class="hint" data-i18n="dialog.codeHint"></p>
+
+    <div id="projectError" class="error" hidden></div>
+
+    <menu class="dialog-actions">
+      <button type="button" class="btn-ghost" data-close="cancel" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-primary" type="submit" data-i18n="dialog.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="promptDialog" class="dialog">
+  <form id="promptForm" method="dialog">
+    <h2 id="promptTitle"></h2>
+    <label>
+      <span id="promptLabel"></span>
+      <input name="value" required maxlength="120" autocomplete="off" />
+    </label>
+    <menu class="dialog-actions">
+      <button type="button" class="btn-ghost" data-close="cancel" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-primary" type="submit" data-i18n="dialog.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="pickDialog" class="dialog">
+  <form id="pickForm" method="dialog">
+    <h2 id="pickTitle"></h2>
+    <label>
+      <span id="pickLabel"></span>
+      <select name="value" id="pickSelect"></select>
+    </label>
+    <menu class="dialog-actions">
+      <button type="button" class="btn-ghost" data-close="cancel" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-primary" type="submit" data-i18n="dialog.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="aiDialog" class="dialog">
+  <form id="aiForm" method="dialog">
+    <h2 data-i18n="ai.title"></h2>
+    <p class="lead" data-i18n="ai.lead"></p>
+
+    <label>
+      <span data-i18n="ai.provider"></span>
+      <select name="provider" id="aiProvider"></select>
+    </label>
+
+    <label>
+      <span data-i18n="ai.key"></span>
+      <input name="key" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder="ai.keyPlaceholder" />
+    </label>
+
+    <p class="hint" data-i18n="ai.note"></p>
+    <div id="aiError" class="error" hidden></div>
+
+    <menu class="dialog-actions">
+      <button type="button" id="aiForget" class="link-btn" data-i18n="ai.forget"></button>
+      <button type="button" class="btn-ghost" data-close="cancel" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-primary" type="submit" data-i18n="dialog.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="imageDialog" class="dialog image-dialog">
+  <div class="image-head">
+    <span id="imageName"></span>
+    <button type="button" class="icon-btn" data-close="cancel" data-i18n="dialog.close"></button>
+  </div>
+  <img id="imageView" alt="" />
+</dialog>
+
+<dialog id="confirmDialog" class="dialog">
+  <form method="dialog">
+    <h2 id="confirmTitle"></h2>
+    <p id="confirmText"></p>
+    <menu class="dialog-actions">
+      <button value="cancel" class="btn-ghost" data-i18n="dialog.cancel"></button>
+      <button value="ok" class="btn-danger" id="confirmOk" data-i18n="team.delete"></button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="vendor/supabase.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

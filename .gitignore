@@ -1,0 +1,13 @@
+# Зависимости и сборки — восстанавливаются командой npm install
+node_modules/
+dist/
+
+# Локальные настройки и всё, что может содержать ключи
+.env
+*.local
+renderer/vendor/
+
+# Служебное
+*.log
+.DS_Store
+Thumbs.db
