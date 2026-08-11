@@ -94,7 +94,16 @@
     </button>
 
     <div class="section-label" data-i18n="nav.projects"></div>
+    <input id="projectSearch" type="search" class="project-search"
+           data-i18n-placeholder="nav.findProject" autocomplete="off" />
+    <button id="projectSortBtn" type="button" class="project-sort"></button>
     <nav id="projectList" class="project-list"></nav>
+
+    <!-- Меню по правой кнопке на проекте. -->
+    <div id="projectMenu" class="ctx-menu" hidden>
+      <button type="button" data-action="rename" data-i18n="head.rename"></button>
+      <button type="button" data-action="delete" class="danger" data-i18n="head.deleteProject"></button>
+    </div>
     <button id="addProjectBtn" class="btn-ghost add-project" data-i18n="nav.newProject"></button>
 
     <div class="sidebar-foot">
@@ -112,8 +121,8 @@
 
       <div class="foot-links">
         <button id="renameMeBtn" class="link-btn" data-i18n="nav.changeName"></button>
-        <button id="aiBtn" class="link-btn" data-i18n="nav.assistant"></button>
         <button id="pairBtn" class="link-btn" data-i18n="nav.pair"></button>
+        <button id="aiBtn" class="link-btn" hidden></button>
         <button id="signOutBtn" class="link-btn" data-i18n="nav.signOut"></button>
       </div>
       <select id="langApp" class="lang-select foot-lang"></select>
@@ -155,7 +164,10 @@
 
 <dialog id="taskDialog" class="dialog">
   <form id="taskForm" method="dialog">
-    <h2 id="taskDialogTitle"></h2>
+    <div class="dialog-top">
+      <h2 id="taskDialogTitle"></h2>
+      <button type="button" class="icon-btn" data-close="cancel" title="Закрыть">✕</button>
+    </div>
 
     <label>
       <span data-i18n="dialog.title"></span>

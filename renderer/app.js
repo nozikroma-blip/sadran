@@ -41,7 +41,8 @@ let recorder = null;    // запись голоса
 
 let allComments = [];   // всё, что видно мне — для счётчиков в таблице
 let allAttachments = [];
-const expanded = new Set();   // задачи с раскрытым обсуждением
+// id задачи -> что показываем под ней: 'comments' или 'files'.
+const expanded = new Map();
 const thumbs = new Map();     // path -> временная ссылка на картинку
 
 const filters = { text: '', status: '', assignee: '', overdueOnly: false, hideDone: true };
@@ -56,11 +57,13 @@ function colorIndex(str) {
   return h % PALETTE_SIZE;
 }
 
-// Цвет проекта берём по его месту в списке, а не по хешу: так первые 12 проектов
-// гарантированно разного цвета, без случайных совпадений.
+// Цвет проекта не должен меняться от того, как участник разложил список у себя,
+// поэтому берём стабильный порядок по дате создания: первые 12 проектов
+// гарантированно разного цвета, а перетаскивание цвета не трогает.
 function projectColor(id) {
-  const i = projects.findIndex((p) => p.id === id);
-  return (i < 0 ? 0 : i) % PALETTE_SIZE;
+  const ordered = [...projects].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const i = ordered.findIndex((p) => p.id === id);
+  return (i < 0 ? colorIndex(id) : i) % PALETTE_SIZE;
 }
 
 // То же для людей — порядок берём стабильный, по дате регистрации.
@@ -122,8 +125,87 @@ const isLeader = () => me && me.role === 'leader';
 // Права остаются прежними; переключатель влияет только на то, что показано.
 const seeingAll = () => isOwner() && viewAs === 'owner';
 
-const visibleProjects = () =>
-  seeingAll() ? projects : projects.filter((p) => p.team_id === me.team_id);
+// Поиск в боковой панели: сверяем и номер, и название.
+let projectFilter = '';
+
+// Порядок проектов — личное дело каждого: человек раскладывает список под себя,
+// на других это не влияет. Поэтому храним его на этом компьютере, отдельно
+// для каждого аккаунта, а не в общей базе.
+let projectOrder = [];       // id проектов в том порядке, как их разложили
+let projectSort = 'manual';  // 'manual' — вручную, либо 'code' / 'name'
+
+const orderKey = () => `sadran.projectOrder.${me ? me.id : 'anon'}`;
+
+function loadProjectOrder() {
+  projectOrder = [];
+  projectSort = 'manual';
+  try {
+    const saved = JSON.parse(localStorage.getItem(orderKey()) || '{}');
+    if (Array.isArray(saved.order)) {
+      projectOrder = saved.order.filter((id) => typeof id === 'string');
+    }
+    if (saved.sort === 'code' || saved.sort === 'name') projectSort = saved.sort;
+  } catch (error) {
+    // Испорченную запись просто игнорируем — начнём с порядка по умолчанию.
+  }
+}
+
+function saveProjectOrder() {
+  try {
+    localStorage.setItem(orderKey(), JSON.stringify({ order: projectOrder, sort: projectSort }));
+  } catch (error) {
+    // Если хранилище недоступно, порядок доживёт до перезапуска — и ладно.
+  }
+}
+
+// Проекты без номера уходят в конец: сортировать их по пустой строке бессмысленно.
+function byCode(a, b) {
+  if (!a.code !== !b.code) return a.code ? -1 : 1;
+  const locale = langInfo().locale;
+  return String(a.code || '').localeCompare(String(b.code || ''), locale, { numeric: true })
+    || byName(a, b);
+}
+
+const byName = (a, b) => a.name.localeCompare(b.name, langInfo().locale);
+
+// Проекты, которых ещё нет в личном порядке (только что созданные кем-то),
+// встают в конец — по дате создания.
+function orderedProjects(list) {
+  if (projectSort === 'code') return [...list].sort(byCode);
+  if (projectSort === 'name') return [...list].sort(byName);
+
+  const rank = new Map(projectOrder.map((id, i) => [id, i]));
+  const at = (p) => (rank.has(p.id) ? rank.get(p.id) : Number.MAX_SAFE_INTEGER);
+  return [...list].sort((a, b) => at(a) - at(b) || a.created_at.localeCompare(b.created_at));
+}
+
+const visibleProjects = () => {
+  const scope = seeingAll() ? projects : projects.filter((p) => p.team_id === me.team_id);
+  const found = !projectFilter
+    ? scope
+    : scope.filter((p) => projectLabel(p).toLowerCase().includes(projectFilter));
+  return orderedProjects(found);
+};
+
+// Личный порядок держим полным списком id — тогда проект не прыгает через
+// половину списка, если он показан не весь (включён поиск или «только моя команда»).
+function moveProject(dragId, targetId, after) {
+  if (!dragId || !targetId || dragId === targetId) return;
+
+  const full = orderedProjects(projects).map((p) => p.id);
+  const from = full.indexOf(dragId);
+  if (from < 0) return;
+  full.splice(from, 1);
+
+  const to = full.indexOf(targetId);
+  if (to < 0) return;
+  full.splice(after ? to + 1 : to, 0, dragId);
+
+  projectOrder = full;
+  projectSort = 'manual';   // перетащили — значит, дальше порядок ручной
+  saveProjectOrder();
+  renderSidebar();
+}
 
 // Завести проект в своей команде может любой её участник.
 // Удаление осталось за владельцем и лидером — см. supabase-migration-3.1.sql.
@@ -574,6 +656,8 @@ async function enterApp() {
     return;
   }
 
+  loadProjectOrder();   // порядок свой у каждого аккаунта на этом компьютере
+
   // Человека без команды сразу отправляем на экран команды — там объяснено, что делать.
   view = (me.team_id || isOwner()) ? MY_TASKS : TEAM_VIEW;
   $('hideDone').checked = filters.hideDone;
@@ -669,6 +753,9 @@ function renderSidebar() {
   // Переключатель «Все команды / Только моя» нужен лишь владельцу.
   $('viewModeField').hidden = !isOwner();
 
+  $('projectSortBtn').textContent = t('nav.sort' + projectSort[0].toUpperCase() + projectSort.slice(1));
+  $('projectSortBtn').title = t('nav.sortHint');
+
   const list = $('projectList');
   list.replaceChildren();
 
@@ -676,6 +763,8 @@ function renderSidebar() {
     const btn = document.createElement('button');
     btn.className = 'project-item' + (project.id === view ? ' active' : '');
     btn.dataset.id = project.id;
+    // Пока список отфильтрован, перетаскивать нечестно: не видно, куда кладём.
+    btn.draggable = !projectFilter;
 
     const dot = document.createElement('span');
     dot.className = 'dot c' + projectColor(project.id);
@@ -725,7 +814,8 @@ function renderHeader() {
   const isMy = view === MY_TASKS;
   const project = isMy ? null : projectById(view);
 
-  $('voiceBtn').hidden = projects.length === 0;
+  // Голосовой ввод убран: его роль взял на себя коннектор к Claude.
+  $('voiceBtn').hidden = true;
   $('addTaskBtn').hidden = !project && projects.length === 0;
   $('renameProjectBtn').hidden = !project || !canManageProjects();
   $('deleteProjectBtn').hidden = !project || !canDeleteProjects();
@@ -942,7 +1032,12 @@ function actionsCell(task) {
 
 function taskRow(task, withProject) {
   const tr = document.createElement('tr');
-  if (task.status === 'done') tr.className = 'done-row';
+  tr.className = 'task-row' + (task.status === 'done' ? ' done-row' : '');
+
+  // Раскрытие по клику на строку. Кнопки и списки внутри строки перехватывают
+  // клик раньше — closest() находит ближайший data-action, а не этот.
+  tr.dataset.action = 'toggleRow';
+  tr.dataset.id = task.id;
 
   const tdTitle = document.createElement('td');
   const title = document.createElement('div');
@@ -1039,6 +1134,93 @@ function extrasRow(task, colSpan) {
   const td = document.createElement('td');
   td.colSpan = colSpan;
 
+  const mode = expanded.get(task.id);
+
+  // Вложения: миниатюры плюс кнопка добавления.
+  if (mode === 'files') {
+    const files = allAttachments.filter((a) => a.task_id === task.id);
+    const strip = document.createElement('div');
+    strip.className = 'thumb-strip';
+
+    for (const file of files) {
+      if (isImage(file)) {
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.alt = file.name;
+        img.title = file.name;
+        img.dataset.action = 'viewImage';
+        img.dataset.id = file.id;
+        if (thumbs.has(file.path)) img.src = thumbs.get(file.path);
+        else signedUrl(file).then((url) => { thumbs.set(file.path, url); img.src = url; }).catch(() => {});
+        strip.append(img);
+      } else {
+        const link = document.createElement('button');
+        link.className = 'counter';
+        link.dataset.action = 'openFile';
+        link.dataset.id = file.id;
+        link.textContent = '📎 ' + file.name;
+        strip.append(link);
+      }
+    }
+
+    const add = document.createElement('button');
+    add.className = 'counter add';
+    add.dataset.action = 'inlineAttach';
+    add.dataset.id = task.id;
+    add.textContent = t('dialog.attach');
+    strip.append(add);
+
+    td.append(strip);
+    tr.append(td);
+    return tr;
+  }
+
+  // Обсуждение: лента и поле для нового комментария.
+  for (const comment of allComments.filter((c) => c.task_id === task.id)) {
+    const author = profileById(comment.author_id);
+    const line = document.createElement('div');
+    line.className = 'inline-comment';
+
+    const text = document.createElement('span');
+    text.textContent = `${displayName(author)} · ${new Date(comment.created_at)
+      .toLocaleString(langInfo().locale, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}: ${comment.body}`;
+    line.append(text);
+
+    if (comment.author_id === me.id || isOwner()) {
+      const del = document.createElement('button');
+      del.className = 'trash';
+      del.dataset.action = 'deleteComment';
+      del.dataset.id = comment.id;
+      del.title = t('team.delete');
+      del.textContent = '🗑';
+      line.append(del);
+    }
+    td.append(line);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'inline-new';
+
+  const input = document.createElement('input');
+  input.className = 'inline-input';
+  input.dataset.taskId = task.id;
+  input.maxLength = 4000;
+  input.placeholder = t('dialog.commentPlaceholder');
+
+  const send = document.createElement('button');
+  send.className = 'counter add';
+  send.dataset.action = 'inlineComment';
+  send.dataset.id = task.id;
+  send.textContent = t('dialog.send');
+
+  row.append(input, send);
+  td.append(row);
+  tr.append(td);
+  return tr;
+}
+
+// Старая разметка полосы (обе секции сразу) больше не используется.
+function legacyExtras(task, td) {
   const files = allAttachments.filter((a) => a.task_id === task.id);
   if (files.length) {
     const strip = document.createElement('div');
@@ -1382,8 +1564,10 @@ async function addProject() {
   }
 }
 
-async function renameProject() {
-  const project = projectById(view);
+// Без аргумента работаем с открытым проектом — так зовут кнопки в шапке;
+// меню по правой кнопке передаёт id того проекта, по которому щёлкнули.
+async function renameProject(id) {
+  const project = projectById(id || view);
   if (!project) return;
 
   const values = await askUniqueProject({
@@ -1398,8 +1582,8 @@ async function renameProject() {
   run(() => sb.from('projects').update(values).eq('id', project.id));
 }
 
-async function deleteProject() {
-  const project = projectById(view);
+async function deleteProject(id) {
+  const project = projectById(id || view);
   if (!project) return;
 
   const count = tasks.filter((x) => x.project_id === project.id).length;
@@ -1409,7 +1593,7 @@ async function deleteProject() {
   });
   if (!ok) return;
 
-  view = MY_TASKS;
+  if (view === project.id) view = MY_TASKS;
   run(() => sb.from('projects').delete().eq('id', project.id));
 }
 
@@ -1604,11 +1788,19 @@ async function uploadAttachment(file) {
 
   // Имя в хранилище делаем безопасным: кириллица и пробелы в путях ломают ссылки.
   const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-60);
-  const objectPath = `${editingTaskId}/${uid()}-${safe}`;
+  const objectPath = `${editingTaskId}/${crypto.randomUUID()}-${safe}`;
 
   try {
-    const { error: uploadError } = await sb.storage
-      .from('attachments').upload(objectPath, file, { contentType: file.type || 'application/octet-stream' });
+    // Без таймаута зависший запрос выглядит как вечное «Загружаю…»
+    // и не даёт понять, что пошло не так.
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Хранилище не ответило за 60 секунд')), 60000));
+
+    const { error: uploadError } = await Promise.race([
+      sb.storage.from('attachments')
+        .upload(objectPath, file, { contentType: file.type || 'application/octet-stream' }),
+      timeout
+    ]);
     if (uploadError) throw uploadError;
 
     const { error } = await sb.from('attachments').insert({
@@ -1862,6 +2054,11 @@ async function renameMe() {
 /* ---------- События ---------- */
 
 $('myTasksBtn').addEventListener('click', () => { view = MY_TASKS; render(); });
+$('projectSearch').addEventListener('input', (e) => {
+  projectFilter = e.target.value.trim().toLowerCase();
+  renderSidebar();
+});
+
 $('teamBtn').addEventListener('click', () => { view = TEAM_VIEW; render(); });
 $('addTeamBtn').addEventListener('click', addTeam);
 
@@ -1883,9 +2080,125 @@ $('projectList').addEventListener('click', (e) => {
   render();
 });
 
+/* ---------- Перетаскивание проектов ---------- */
+
+let draggingId = null;
+
+// Подсветку места вставки рисуем на самом пункте: рамка сверху или снизу.
+function clearDropMarks() {
+  for (const el of $('projectList').querySelectorAll('.drop-before, .drop-after')) {
+    el.classList.remove('drop-before', 'drop-after');
+  }
+}
+
+// Ниже середины пункта — кладём после него, выше — перед.
+function dropTarget(e) {
+  const btn = e.target.closest('.project-item');
+  if (!btn || btn.dataset.id === draggingId) return null;
+  const box = btn.getBoundingClientRect();
+  return { id: btn.dataset.id, after: e.clientY > box.top + box.height / 2, btn };
+}
+
+$('projectList').addEventListener('dragstart', (e) => {
+  const btn = e.target.closest('.project-item');
+  if (!btn || !btn.draggable) return;
+
+  draggingId = btn.dataset.id;
+  btn.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', draggingId);
+});
+
+$('projectList').addEventListener('dragover', (e) => {
+  if (!draggingId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const target = dropTarget(e);
+  clearDropMarks();
+  if (target) target.btn.classList.add(target.after ? 'drop-after' : 'drop-before');
+});
+
+$('projectList').addEventListener('drop', (e) => {
+  if (!draggingId) return;
+  e.preventDefault();
+
+  const target = dropTarget(e);
+  clearDropMarks();
+  if (target) moveProject(draggingId, target.id, target.after);
+  draggingId = null;
+});
+
+$('projectList').addEventListener('dragend', () => {
+  draggingId = null;
+  clearDropMarks();
+  for (const el of $('projectList').querySelectorAll('.dragging')) el.classList.remove('dragging');
+});
+
+// Кнопка сортировки: вручную → по номеру → по названию → снова вручную.
+// Ручной порядок при этом сохраняется и возвращается как был.
+$('projectSortBtn').addEventListener('click', () => {
+  const next = { manual: 'code', code: 'name', name: 'manual' };
+  projectSort = next[projectSort];
+  saveProjectOrder();
+  renderSidebar();
+});
+
+/* ---------- Меню по правой кнопке ---------- */
+
+let menuProjectId = null;
+
+function closeProjectMenu() {
+  menuProjectId = null;
+  $('projectMenu').hidden = true;
+}
+
+function openProjectMenu(id, x, y) {
+  const project = projectById(id);
+  if (!project) return;
+
+  const menu = $('projectMenu');
+  menu.querySelector('[data-action="rename"]').hidden = !canManageProjects();
+  menu.querySelector('[data-action="delete"]').hidden = !canDeleteProjects();
+  if (!canManageProjects() && !canDeleteProjects()) return;
+
+  menuProjectId = id;
+  menu.hidden = false;
+
+  // Показали — теперь известен размер, и меню можно удержать в пределах окна.
+  const box = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, window.innerWidth - box.width - 4) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - box.height - 4) + 'px';
+}
+
+$('projectList').addEventListener('contextmenu', (e) => {
+  const btn = e.target.closest('.project-item');
+  if (!btn) return;
+  e.preventDefault();
+  openProjectMenu(btn.dataset.id, e.clientX, e.clientY);
+});
+
+$('projectMenu').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-action]');
+  if (!item) return;
+
+  const id = menuProjectId;
+  closeProjectMenu();
+  if (item.dataset.action === 'rename') renameProject(id);
+  if (item.dataset.action === 'delete') deleteProject(id);
+});
+
+document.addEventListener('mousedown', (e) => {
+  if (!$('projectMenu').hidden && !e.target.closest('#projectMenu')) closeProjectMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeProjectMenu();
+});
+window.addEventListener('blur', closeProjectMenu);
+
 $('addProjectBtn').addEventListener('click', addProject);
-$('renameProjectBtn').addEventListener('click', renameProject);
-$('deleteProjectBtn').addEventListener('click', deleteProject);
+$('renameProjectBtn').addEventListener('click', () => renameProject());
+$('deleteProjectBtn').addEventListener('click', () => deleteProject());
 $('renameMeBtn').addEventListener('click', renameMe);
 
 $('addTaskBtn').addEventListener('click', () => {
@@ -1906,15 +2219,55 @@ $('tasks').addEventListener('click', (e) => {
   if (action === 'viewImage') openAttachment(id, true);
   if (action === 'openFile') openAttachment(id, false);
 
-  if (action === 'toggleComments' || action === 'toggleFiles') {
-    if (expanded.has(id)) expanded.delete(id);
-    else expanded.add(id);
+  // Каждый значок открывает свою секцию; повторное нажатие сворачивает.
+  const modes = { toggleComments: 'comments', toggleFiles: 'files', toggleRow: 'comments' };
+  if (modes[action]) {
+    if (expanded.get(id) === modes[action]) expanded.delete(id);
+    else expanded.set(id, modes[action]);
     renderTasks();
+  }
+
+  if (action === 'inlineComment') {
+    const input = target.parentElement.querySelector('.inline-input');
+    const body = input.value.trim();
+    if (!body) return;
+    run(() => sb.from('comments').insert({ task_id: id, author_id: me.id, body }));
+  }
+
+  if (action === 'inlineAttach') {
+    const picker = document.createElement('input');
+    picker.type = 'file';
+    picker.style.position = 'fixed';
+    picker.style.left = '-9999px';
+    document.body.append(picker);
+    picker.addEventListener('change', async () => {
+      const file = picker.files[0];
+      picker.remove();
+      if (!file) return;
+      editingTaskId = id;          // uploadAttachment кладёт файл в папку этой задачи
+      await uploadAttachment(file);
+    });
+    picker.click();
   }
   if (action === 'edit') {
     const task = tasks.find((t) => t.id === id);
     if (task) openTaskDialog(task);
   }
+});
+
+// Поля быстрых комментариев создаются на лету, поэтому слушаем всю таблицу.
+$('tasks').addEventListener('keydown', (e) => {
+  const input = e.target.closest('.inline-input');
+  if (!input || e.key !== 'Enter' || e.shiftKey) return;
+
+  e.preventDefault();
+  const body = input.value.trim();
+  if (!body) return;
+
+  input.value = '';
+  run(() => sb.from('comments').insert({
+    task_id: input.dataset.taskId, author_id: me.id, body
+  }));
 });
 
 $('tasks').addEventListener('change', (e) => {
@@ -2142,12 +2495,42 @@ $('viewMode').addEventListener('change', (e) => {
 
 $('commentBtn').addEventListener('click', addComment);
 
+// Enter отправляет комментарий, Shift+Enter переносит строку — как в мессенджерах.
+$('commentInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+    e.preventDefault();
+    addComment();
+  }
+});
+
+// Ctrl+Enter в любом месте окна задачи сохраняет её целиком.
+$('taskDialog').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.ctrlKey) {
+    e.preventDefault();
+    $('taskDialog').close('ok');
+  }
+});
+
 $('attachBtn').addEventListener('click', () => {
+  // Поле обязательно должно быть в документе: по неприсоединённому элементу
+  // Electron окно выбора файла не открывает.
+  // Не прячем через hidden/display:none — по такому полю Chromium окно выбора
+  // файла не открывает. Убираем его за край экрана.
   const picker = document.createElement('input');
   picker.type = 'file';
-  picker.addEventListener('change', () => {
-    if (picker.files[0]) uploadAttachment(picker.files[0]);
+  picker.style.position = 'fixed';
+  picker.style.left = '-9999px';
+  document.body.append(picker);
+
+  picker.addEventListener('change', async () => {
+    const file = picker.files[0];
+    picker.remove();
+    if (!file) return;
+
+    fieldError('extrasError', `Загружаю «${file.name}»…`);
+    await uploadAttachment(file);
   });
+
   picker.click();
 });
 

@@ -179,6 +179,56 @@ body {
 .project-item:hover { background: var(--sidebar-hover); }
 .project-item.active { background: var(--accent); }
 
+/* Перетаскивание: сам пункт бледнеет, а место вставки показываем чертой. */
+.project-item.dragging { opacity: .45; }
+
+.project-item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.project-item.drop-after  { box-shadow: inset 0 -2px 0 var(--accent); }
+
+.project-sort {
+  align-self: flex-start;
+  margin: 6px 0 2px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a92b2;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-sort:hover { background: var(--sidebar-hover); color: #e8eaf2; }
+
+/* Меню по правой кнопке — поверх всего, position задаётся из кода. */
+.ctx-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 170px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0,0,0,.28);
+}
+
+.ctx-menu button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ctx-menu button:hover { background: var(--bg); }
+.ctx-menu button.danger { color: var(--danger); }
+
 .project-item .name {
   flex: 1;
   overflow: hidden;
@@ -656,7 +706,28 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
 }
 
-textarea { resize: vertical; }
+/* Растягивать поля можно, но в пределах разумного — иначе диалог уезжает. */
+textarea {
+  resize: vertical;
+  max-height: 260px;
+  min-height: 56px;
+}
+
+.dialog input, .dialog select, .dialog textarea { max-width: 100%; }
+
+/* Длинное название проекта не должно выталкивать кнопки за край экрана. */
+.topbar h1 {
+  overflow-wrap: anywhere;
+  max-width: 46ch;
+}
+
+.title-block { min-width: 0; }
+
+/* Кнопка вложений была мелкой для попадания мышью. */
+#attachBtn {
+  padding: 8px 16px;
+  font-size: 13.5px;
+}
 
 button { font: inherit; }
 button:disabled { opacity: .55; cursor: default; }
@@ -888,3 +959,77 @@ button:disabled { opacity: .55; cursor: default; }
   margin: 4px 0 0;
   padding: 0;
 }
+
+/* Шапка диалога: заголовок и крестик закрытия. */
+.dialog-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dialog-top h2 { margin: 0; }
+
+/* Поиск по проектам в боковой панели. */
+.project-search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .18);
+  color: #e8eaf2;
+}
+
+.project-search::placeholder { color: #8a92b2; }
+
+/* Вся строка задачи кликабельна: раскрывает комментарии и вложения. */
+.task-row { cursor: pointer; }
+
+/* Внутри строки указатель обычный — там свои действия. */
+.task-row button,
+.task-row select { cursor: default; }
+
+.task-row .icon-btn,
+.task-row .counter,
+.task-row .proj-link { cursor: pointer; }
+
+/* Жёсткий предел на растягивание полей: раньше диалог можно было
+   растянуть на несколько экранов и потерять кнопки из виду. */
+.dialog textarea,
+#commentInput {
+  max-height: 200px !important;
+  min-height: 54px;
+  max-width: 100% !important;
+}
+
+/* Значки обсуждения и вложений — крупнее и заметнее. */
+.counters { gap: 8px; margin-top: 8px; }
+.counter { font-size: 14px; padding: 5px 12px; border-radius: 14px; line-height: 1.2; }
+.counter.add { border-style: dashed; }
+
+/* Быстрый комментарий прямо под задачей. */
+.inline-new { display: flex; gap: 8px; margin-top: 8px; }
+.inline-input { flex: 1; padding: 7px 10px; font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: 7px; }
+.inline-comment { display: flex; align-items: baseline; gap: 8px; }
+
+/* Корзина проявляется при наведении на комментарий. */
+.trash { border: 0; background: none; cursor: pointer; opacity: 0; font-size: 13px; padding: 0 4px; }
+.inline-comment:hover .trash { opacity: .7; }
+.trash:hover { opacity: 1 !important; }
+
+/* Номер и название проекта — на одной линии и одного размера.
+   Раньше номер был мельче и «плавал» относительно названия. */
+.project-item { align-items: baseline; }
+.project-item .dot { align-self: center; }
+
+.pcode {
+  font-size: 13px;
+  opacity: .75;
+  min-width: 3.2em;
+  text-align: end;
+}
+
+.project-item .name { font-size: 13px; }
